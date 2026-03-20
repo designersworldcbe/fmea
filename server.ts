@@ -1,7 +1,9 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import app from "./src/server/app";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { createApp, setIO } from "./src/server/app";
 import { initDB } from "./src/server/db";
 
 async function startServer() {
@@ -9,6 +11,37 @@ async function startServer() {
 
   // Initialize Neon Database
   await initDB();
+
+  const httpServer = createServer();
+  const io = new Server(httpServer);
+  setIO(io);
+  const app = createApp(io);
+  httpServer.on("request", app);
+
+  const connectedUsers = new Map<string, { id: string; name: string }>();
+
+  io.on("connection", (socket) => {
+    console.log("a user connected", socket.id);
+    
+    // For now, assume a default name
+    connectedUsers.set(socket.id, { id: socket.id, name: `User ${socket.id.slice(0, 4)}` });
+    io.emit("users:update", Array.from(connectedUsers.values()));
+
+    socket.on("disconnect", () => {
+      console.log("user disconnected", socket.id);
+      connectedUsers.delete(socket.id);
+      io.emit("users:update", Array.from(connectedUsers.values()));
+    });
+    socket.on("comment:added", (comment) => {
+      io.emit("comment:added", comment);
+    });
+
+    socket.on("assignment:added", (assignment) => {
+      io.emit("assignment:added", assignment);
+    });
+    
+    // Add socket logic here
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -29,7 +62,7 @@ async function startServer() {
     res.status(500).json({ error: err.message || "Internal Server Error" });
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
     if (!process.env.DATABASE_URL) {
       console.log(`\n⚠️  WARNING: DATABASE_URL is not set. API endpoints will return an error.`);

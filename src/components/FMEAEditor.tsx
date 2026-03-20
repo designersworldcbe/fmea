@@ -7,37 +7,7 @@ import { suggestFMEAContent, suggestRecommendedAction, suggestFunctions } from '
 import { exportFMEAToExcel } from '../services/excel';
 import { InputGroup } from './SharedComponents';
 import AddStepModal from './AddStepModal';
-
-const PARAMETERS = [
-  "Distance", "Diameter", "Inner Diameter", "Outer Diameter", "Length", "Width", 
-  "Thickness", "Angle", "Surface Finish", "Tap", "Form", "Orientation", 
-  "Location", "Runout", "Other"
-];
-
-const SYMBOLS = [
-  "+", "-", "±", "°", 
-  "—", "⏥", "◯", "⌭", 
-  "⌓", "⌢", 
-  "⟂", "∥", "∠", 
-  "⌖", "◎", "⌕", 
-  "↗", "⌰", 
-  "Ⓜ", "Ⓛ", "⌀", "R", "CR"
-];
-
-const REQUIRES_DATUM = [
-  "⟂", "∥", "∠", 
-  "⌖", "◎", "⌕", 
-  "↗", "⌰"
-];
-
-const GDT_SYMBOLS = [
-  "—", "⏥", "◯", "⌭", 
-  "⌓", "⌢", 
-  "⟂", "∥", "∠", 
-  "⌖", "◎", "⌕", 
-  "↗", "⌰", 
-  "Ⓜ", "Ⓛ", "⌀", "R", "CR"
-];
+import { PARAMETERS, SYMBOLS, REQUIRES_DATUM } from '../constants';
 
 interface Props {
   fmea: FMEA;
@@ -60,28 +30,19 @@ export default function FMEAEditor({ fmea, onBack, onSave, isSaving }: Props) {
   const [libraryLoading, setLibraryLoading] = useState<number | null>(null);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const autoSaveTimer = React.useRef<NodeJS.Timeout | null>(null);
 
   // Auto-save logic
   useEffect(() => {
     const subscription = watch((value, { name, type }) => {
       if (type === 'change' && name?.startsWith('items')) {
-        if (autoSaveTimer.current) {
-          clearTimeout(autoSaveTimer.current);
-        }
-        
-        autoSaveTimer.current = setTimeout(() => {
+        const timer = setTimeout(() => {
           handleSubmit(onSave)();
           setLastSaved(new Date().toLocaleTimeString());
         }, 5000);
+        return () => clearTimeout(timer);
       }
     });
-    return () => {
-      subscription.unsubscribe();
-      if (autoSaveTimer.current) {
-        clearTimeout(autoSaveTimer.current);
-      }
-    };
+    return () => subscription.unsubscribe();
   }, [watch, handleSubmit, onSave]);
 
   const handleLibrarySearch = async (index: number) => {
@@ -97,7 +58,8 @@ export default function FMEAEditor({ fmea, onBack, onSave, isSaving }: Props) {
         process_step: item.process_step || '',
         function: item.function,
         product: item.product,
-        process: item.process || ''
+        process: item.process || '',
+        potential_failure_mode: item.potential_failure_mode || ''
       });
       const res = await fetch(`/api/library/search?${params}`);
       const results = await res.json();
@@ -203,81 +165,17 @@ export default function FMEAEditor({ fmea, onBack, onSave, isSaving }: Props) {
     exportFMEAToExcel(data);
   };
 
-  const formatCombined = (param: string, spec: string, sym: string, datum: string) => {
-    if (param === 'GD&T') {
-      const parts = [sym, spec, datum].filter(Boolean);
-      return parts.length > 0 ? `|${parts.join('|')}|` : 'GD&T';
-    }
-    let combined = `${param} ${spec} ${sym}`.trim();
-    if (datum && REQUIRES_DATUM.includes(sym)) {
-      combined += ` WRT ${datum}`;
-    }
-    return combined;
-  };
-
-  const updateCombinedProcess = (index: number, field?: string) => {
-    let param = watch(`items.${index}.process_parameter`) || '';
+  const updateCombinedProcess = (index: number) => {
+    const param = watch(`items.${index}.process_parameter`) || '';
     const spec = watch(`items.${index}.process_spec`) || '';
     const sym = watch(`items.${index}.process_symbol`) || '';
     const datum = watch(`items.${index}.process_datum`) || '';
     
-    if (field === 'symbol' && GDT_SYMBOLS.includes(sym)) {
-      param = 'GD&T';
-      setValue(`items.${index}.process_parameter`, 'GD&T');
+    let combined = `${param} ${spec} ${sym}`.trim();
+    if (datum && REQUIRES_DATUM.includes(sym)) {
+      combined += ` WRT ${datum}`;
     }
-    
-    setValue(`items.${index}.process`, formatCombined(param, spec, sym, datum));
-  };
-
-  const updateCombinedProduct = (index: number, field?: string) => {
-    let param = watch(`items.${index}.product_parameter`) || '';
-    const spec = watch(`items.${index}.product_spec`) || '';
-    const sym = watch(`items.${index}.product_symbol`) || '';
-    const datum = watch(`items.${index}.product_datum`) || '';
-    const tol = watch(`items.${index}.product_tolerance`) || '';
-    const autoCalc = watch(`items.${index}.product_auto_calc`);
-    
-    if (field === 'symbol' && GDT_SYMBOLS.includes(sym)) {
-      param = 'GD&T';
-      setValue(`items.${index}.product_parameter`, 'GD&T');
-    }
-    
-    let upper = watch(`items.${index}.product_upper`) || '';
-    let lower = watch(`items.${index}.product_lower`) || '';
-
-    if (autoCalc && param !== 'GD&T') {
-      const specVal = parseFloat(spec);
-      const tolVal = parseFloat(tol);
-      if (!isNaN(specVal) && !isNaN(tolVal)) {
-        if (sym === '+') {
-          upper = Number((specVal + tolVal).toFixed(4)).toString();
-          lower = specVal.toString();
-        } else if (sym === '-') {
-          upper = specVal.toString();
-          lower = Number((specVal - tolVal).toFixed(4)).toString();
-        } else {
-          upper = Number((specVal + tolVal).toFixed(4)).toString();
-          lower = Number((specVal - tolVal).toFixed(4)).toString();
-        }
-        setValue(`items.${index}.product_upper`, upper);
-        setValue(`items.${index}.product_lower`, lower);
-      } else {
-        setValue(`items.${index}.product_upper`, '');
-        setValue(`items.${index}.product_lower`, '');
-      }
-    }
-
-    let combined = '';
-    if (param === 'GD&T') {
-      const parts = [sym, spec, tol, datum].filter(Boolean);
-      combined = parts.length > 0 ? `|${parts.join('|')}|` : 'GD&T';
-    } else {
-      combined = `${param} ${sym} ${spec}`;
-      if (tol) combined += ` ±${tol}`;
-      if (upper || lower) combined += ` [${lower} ... ${upper}]`;
-    }
-    
-    setValue(`items.${index}.product`, combined.trim());
+    setValue(`items.${index}.process`, combined);
   };
 
   return (
@@ -357,22 +255,6 @@ export default function FMEAEditor({ fmea, onBack, onSave, isSaving }: Props) {
               </tr>
             </thead>
             <tbody>
-              {fields.length === 0 && (
-                <tr>
-                  <td colSpan={15} className="p-10 text-center">
-                    <div className="flex flex-col items-center gap-4">
-                      <p className="text-gray-500">No data found in the database.</p>
-                      <button 
-                        onClick={() => setShowAddStepModal(true)}
-                        className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-all"
-                      >
-                        <Sparkles size={18} />
-                        Generate FMEA with AI
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
               {fields.map((field, index) => {
                 const severity = watch(`items.${index}.severity`) || 0;
                 const occurrence = watch(`items.${index}.occurrence`) || 0;
@@ -393,96 +275,8 @@ export default function FMEAEditor({ fmea, onBack, onSave, isSaving }: Props) {
                   <td className="p-2 border-r border-gray-100">
                     <input {...register(`items.${index}.char_id`)} className="w-full bg-transparent border-none focus:ring-0 p-1" placeholder="ID" />
                   </td>
-                  <td className="p-2 border-r border-gray-100 min-w-[250px]">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex gap-1">
-                        <select 
-                          {...register(`items.${index}.product_parameter`, {
-                            onChange: () => updateCombinedProduct(index)
-                          })} 
-                          className="flex-1 bg-gray-50 border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
-                        >
-                          <option value="">Parameter...</option>
-                          {PARAMETERS.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                        <select 
-                          {...register(`items.${index}.product_symbol`, {
-                            onChange: () => updateCombinedProduct(index, 'symbol')
-                          })} 
-                          className="w-16 bg-gray-50 border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
-                        >
-                          <option value="">Sym</option>
-                          {SYMBOLS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                      
-                      <div className="flex gap-1">
-                        <input 
-                          {...register(`items.${index}.product_spec`, {
-                            onChange: () => updateCombinedProduct(index)
-                          })} 
-                          className="flex-1 bg-gray-50 border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none" 
-                          placeholder="Spec (e.g. 50)" 
-                        />
-                        <input 
-                          {...register(`items.${index}.product_tolerance`, {
-                            onChange: () => updateCombinedProduct(index)
-                          })} 
-                          className="flex-1 bg-gray-50 border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none" 
-                          placeholder="Tol (e.g. 0.1)" 
-                        />
-                      </div>
-
-                      {REQUIRES_DATUM.includes(watch(`items.${index}.product_symbol`) || '') && (
-                        <input 
-                          {...register(`items.${index}.product_datum`, {
-                            onChange: () => updateCombinedProduct(index)
-                          })} 
-                          className="w-full bg-gray-50 border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none" 
-                          placeholder="Datum (WRT)" 
-                        />
-                      )}
-
-                      {watch(`items.${index}.product_parameter`) !== 'GD&T' && (
-                        <div className="bg-gray-50 border border-gray-200 rounded p-2 space-y-2">
-                          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                            <input 
-                              type="checkbox" 
-                              {...register(`items.${index}.product_auto_calc`, {
-                                onChange: () => updateCombinedProduct(index)
-                              })}
-                              className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                            />
-                            Auto-calculate limits
-                          </label>
-                          <div className="flex gap-1">
-                            <input 
-                              {...register(`items.${index}.product_upper`, {
-                                onChange: () => updateCombinedProduct(index)
-                              })} 
-                              disabled={watch(`items.${index}.product_auto_calc`)}
-                              className="flex-1 bg-white border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none disabled:bg-gray-100 disabled:text-gray-500" 
-                              placeholder="Upper" 
-                            />
-                            <input 
-                              {...register(`items.${index}.product_lower`, {
-                                onChange: () => updateCombinedProduct(index)
-                              })} 
-                              disabled={watch(`items.${index}.product_auto_calc`)}
-                              className="flex-1 bg-white border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none disabled:bg-gray-100 disabled:text-gray-500" 
-                              placeholder="Lower" 
-                            />
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Visible field to store the combined value for export/legacy, allowing manual override or viewing AI output */}
-                      <textarea 
-                        {...register(`items.${index}.product`)} 
-                        className="w-full bg-white border border-gray-200 rounded p-1 resize-none min-h-[40px] text-xs text-gray-600 focus:ring-1 focus:ring-emerald-500 outline-none" 
-                        placeholder="Combined Product..." 
-                      />
-                    </div>
+                  <td className="p-2 border-r border-gray-100">
+                    <textarea {...register(`items.${index}.product`)} className="w-full bg-transparent border-none focus:ring-0 p-1 resize-none min-h-[60px]" placeholder="Product..." />
                   </td>
                   <td className="p-2 border-r border-gray-100 min-w-[250px]">
                     <div className="flex flex-col gap-2">
@@ -506,7 +300,7 @@ export default function FMEAEditor({ fmea, onBack, onSave, isSaving }: Props) {
                         />
                         <select 
                           {...register(`items.${index}.process_symbol`, {
-                            onChange: () => updateCombinedProcess(index, 'symbol')
+                            onChange: () => updateCombinedProcess(index)
                           })} 
                           className="w-20 bg-gray-50 border border-gray-200 rounded p-1 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
                         >

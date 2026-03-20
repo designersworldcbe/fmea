@@ -23,8 +23,8 @@ Return a JSON array of objects, where each object has the following fields:
 - severity: Integer (1-10).
 - potential_causes: Root cause of failure.
 - occurrence: Integer (1-10).
-- current_prevention: Process control to prevent.
-- current_detection: Process control to detect.
+- current_prevention: Process control to prevent (BASED ON THE POTENTIAL CAUSES AND PROCESS STEP).
+- current_detection: Process control to detect (BASED ON THE POTENTIAL CAUSES AND PROCESS STEP).
 - detection: Integer (1-10).
 - recommended_action: Action to reduce risk.
 
@@ -165,6 +165,81 @@ Return a JSON array of strings.`,
     return JSON.parse(text);
   } catch (e) {
     console.error("Failed to parse functions", e);
+    return [];
+  }
+}
+
+export async function generateFullControlPlan(partName: string, processes: { processName: string, productChar: string, processChar: string, spec: string }[]): Promise<ControlPlanItem[]> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `You are an expert in Quality Control Plans. 
+Generate a comprehensive Control Plan for the following part and processes:
+Part Name: ${partName}
+Processes: ${JSON.stringify(processes)}
+
+For each process, generate the ControlPlanItem.
+CRITICAL: If the specification tolerance is less than 50 microns (0.05 mm), mark it as a 'SC' (Special Characteristic) in the balloon_no field. Otherwise, leave it empty.
+
+Return a JSON array of ControlPlanItem objects. Each object should have:
+- process_no: String
+- process_name: String
+- machine_name: String
+- tool_fixture: String
+- serial_no: Number
+- balloon_no: String (Mark 'SC' if < 50 microns, else empty)
+- product_char: String
+- process_char: String
+- spec: String
+- tolerance_type: '+' | '-' | '±' | 'GD&T'
+- tolerance_value: String
+- upper_limit: String
+- lower_limit: String
+- eval_method: String
+- sample_size: String
+- sample_freq: String
+- control_method: String
+- responsibility: String
+- reaction_plan: String`,
+    config: {
+      systemInstruction: "Keep the response concise. Return only the JSON array.",
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            process_no: { type: Type.STRING },
+            process_name: { type: Type.STRING },
+            machine_name: { type: Type.STRING },
+            tool_fixture: { type: Type.STRING },
+            serial_no: { type: Type.INTEGER },
+            balloon_no: { type: Type.STRING },
+            product_char: { type: Type.STRING },
+            process_char: { type: Type.STRING },
+            spec: { type: Type.STRING },
+            tolerance_type: { type: Type.STRING, enum: ['+', '-', '±', 'GD&T'] },
+            tolerance_value: { type: Type.STRING },
+            upper_limit: { type: Type.STRING },
+            lower_limit: { type: Type.STRING },
+            eval_method: { type: Type.STRING },
+            sample_size: { type: Type.STRING },
+            sample_freq: { type: Type.STRING },
+            control_method: { type: Type.STRING },
+            responsibility: { type: Type.STRING },
+            reaction_plan: { type: Type.STRING }
+          },
+          required: ["process_no", "process_name", "machine_name", "tool_fixture", "serial_no", "balloon_no", "product_char", "process_char", "spec", "tolerance_type", "tolerance_value", "upper_limit", "lower_limit", "eval_method", "sample_size", "sample_freq", "control_method", "responsibility", "reaction_plan"]
+        }
+      }
+    }
+  });
+
+  try {
+    const text = response.text;
+    if (!text) return [];
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("Failed to parse control plan", e);
     return [];
   }
 }

@@ -164,6 +164,24 @@ export const initDB = async () => {
         responsibility TEXT,
         reaction_plan TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS comments (
+        id SERIAL PRIMARY KEY,
+        fmea_id INTEGER REFERENCES fmeas(id) ON DELETE CASCADE,
+        user_id TEXT,
+        user_name TEXT,
+        text TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS assignments (
+        id SERIAL PRIMARY KEY,
+        fmea_item_id INTEGER REFERENCES fmea_items(id) ON DELETE CASCADE,
+        user_id TEXT,
+        user_name TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Seed Data

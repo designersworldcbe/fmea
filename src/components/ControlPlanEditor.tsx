@@ -5,6 +5,7 @@ import { suggestControlPlanDetails } from '../services/gemini';
 import { Plus, Trash2, Save, ChevronLeft, Sparkles, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { InputGroup } from './SharedComponents';
+import GeneratePlanModal from './GeneratePlanModal';
 
 interface Props {
   plan: ControlPlan;
@@ -23,29 +24,21 @@ export default function ControlPlanEditor({ plan, onSave, onBack }: Props) {
   });
 
   const [aiLoading, setAiLoading] = useState<number | null>(null);
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
-  const autoSaveTimer = React.useRef<NodeJS.Timeout | null>(null);
 
   // Auto-save logic
   useEffect(() => {
     const subscription = watch((value, { name, type }) => {
       if (type === 'change' && name?.startsWith('items')) {
-        if (autoSaveTimer.current) {
-          clearTimeout(autoSaveTimer.current);
-        }
-        
-        autoSaveTimer.current = setTimeout(() => {
+        const timer = setTimeout(() => {
           handleSubmit(onSave)();
           setLastSaved(new Date().toLocaleTimeString());
         }, 5000);
+        return () => clearTimeout(timer);
       }
     });
-    return () => {
-      subscription.unsubscribe();
-      if (autoSaveTimer.current) {
-        clearTimeout(autoSaveTimer.current);
-      }
-    };
+    return () => subscription.unsubscribe();
   }, [watch, handleSubmit, onSave]);
 
   const handleAISuggest = async (index: number) => {
@@ -90,6 +83,13 @@ export default function ControlPlanEditor({ plan, onSave, onBack }: Props) {
         <div className="flex items-center gap-3">
           {lastSaved && <span className="text-[10px] text-gray-400 font-medium italic">Auto-saved at {lastSaved}</span>}
           <button
+            onClick={() => setIsGenerateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-all font-medium text-sm shadow-sm"
+          >
+            <Sparkles size={16} />
+            Generate Full Plan
+          </button>
+          <button
             onClick={handleSubmit(onSave)}
             className="flex items-center gap-2 px-4 py-2 bg-[#004F8C] text-white rounded hover:bg-[#003A6A] transition-all font-medium text-sm shadow-sm"
           >
@@ -98,6 +98,15 @@ export default function ControlPlanEditor({ plan, onSave, onBack }: Props) {
           </button>
         </div>
       </div>
+      
+      <GeneratePlanModal
+        isOpen={isGenerateModalOpen}
+        onClose={() => setIsGenerateModalOpen(false)}
+        onGenerate={(items) => {
+          items.forEach(item => append(item));
+        }}
+        partName={watch('part_name') || ''}
+      />
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-6 border-b border-gray-200 bg-gray-50/50">
